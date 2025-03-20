@@ -1,9 +1,11 @@
-import './App.css';
+//** IMPORTS */
+import Board from "scenes/board/Board";
+import "./App.css";
 
 function App() {
   return (
     <div className="App">
-    <h1>tictactoe</h1>
+      <Board />
     </div>
   );
 }
