@@ -2,6 +2,18 @@ import React, { useState, useEffect } from "react";
 import { io } from "socket.io-client";
 import "./Board.css";
 import Square from "scenes/square/Square";
+import { useSelector, useDispatch } from "react-redux";
+import {
+  setGameState,
+  setCurrentPlayer,
+  setFinishedState,
+  setFinishedArrayState,
+  setPlayOnline,
+  setSocket,
+  setPlayerName,
+  setOpponentName,
+  setPlayingAs,
+} from "features/game/gameSlice";
 
 //** BOARD */
 const board = [
@@ -9,31 +21,42 @@ const board = [
   [4, 5, 6],
   [7, 8, 9],
 ];
-
 const Board = () => {
-  const [gameState, setGameState] = useState(board);
-  const [currentPlayer, setCurrentPlayer] = useState("circle");
-  const [finishedState, setFinishetState] = useState(false);
-  const [finishedArrayState, setFinishedArrayState] = useState([]);
-  const [playOnline, setPlayOnline] = useState(false);
-  const [socket, setSocket] = useState(null);
-  const [playerName, setPlayerName] = useState("");
-  const [opponentName, setOpponentName] = useState(null);
-  const [playingAs, setPlayingAs] = useState(null);
+  const {
+    gameState,
+    currentPlayer,
+    finishedState,
+    finishedArrayState,
+    playOnline,
+    socket,
+    playerName,
+    opponentName,
+    playingAs,
+  } = useSelector((state) => state.game);
+  const dispatch = useDispatch();
+
+  useEffect(() => {
+    const result = checkWinner();
+    if (result) {
+      dispatch(setFinishedState(result.winner));
+      dispatch(setFinishedArrayState(result.combination));
+    }
+  }, [gameState, dispatch]);
 
   //** MODAL STATE */
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [tempPlayerName, setTempPlayerName] = useState("");
 
   const checkWinner = () => {
+    let winningCombination = null;
     //** ROWS */
     for (let row = 0; row < gameState.length; row++) {
       if (
         gameState[row][0] === gameState[row][1] &&
         gameState[row][1] === gameState[row][2]
       ) {
-        setFinishedArrayState([row * 3 + 0, row * 3 + 1, row * 3 + 2]);
-        return gameState[row][0];
+        winningCombination = [row * 3 + 0, row * 3 + 1, row * 3 + 2];
+        return { winner: gameState[row][0], combination: winningCombination };
       }
     }
 
@@ -43,8 +66,8 @@ const Board = () => {
         gameState[0][col] === gameState[1][col] &&
         gameState[1][col] === gameState[2][col]
       ) {
-        setFinishedArrayState([0 * 3 + col, 1 * 3 + col, 2 * 3 + col]);
-        return gameState[0][col];
+        winningCombination = [0 * 3 + col, 1 * 3 + col, 2 * 3 + col];
+        return { winner: gameState[0][col], combination: winningCombination };
       }
     }
 
@@ -53,30 +76,25 @@ const Board = () => {
       gameState[0][0] === gameState[1][1] &&
       gameState[1][1] === gameState[2][2]
     ) {
-      return gameState[0][0];
+      winningCombination = [0, 4, 8];
+      return { winner: gameState[0][0], combination: winningCombination };
     }
 
     if (
       gameState[0][2] === gameState[1][1] &&
       gameState[1][1] === gameState[2][0]
     ) {
-      return gameState[0][2];
+      winningCombination = [2, 4, 6];
+      return { winner: gameState[0][2], combination: winningCombination };
     }
 
     //** CHECK DRAW */
     const isDrawMatch = gameState
       .flat()
       .every((e) => e === "circle" || e === "cross");
-    if (isDrawMatch) return "draw";
+    if (isDrawMatch) return { winner: "draw", combination: [] };
     return null;
   };
-
-  useEffect(() => {
-    const winner = checkWinner();
-    if (winner) {
-      setFinishetState(winner);
-    }
-  }, [gameState]);
 
   //** OPEN MODAL TO ENTER NAME */
   const takePlayerName = () => {
@@ -85,11 +103,17 @@ const Board = () => {
 
   //** HANDLE NAME SUBMISSION */
   const handleNameSubmit = () => {
-    if (!tempPlayerName.trim()) return;
-    setPlayerName(tempPlayerName.trim());
+    if (!tempPlayerName.trim() || playerName === tempPlayerName.trim()) return;
+    const trimmedName = tempPlayerName.trim();
+    dispatch(setPlayerName(trimmedName));
     setIsModalOpen(false);
-    playOnlineGame(tempPlayerName.trim());
+
+    // ✅ Call `playOnlineGame` only after setting the name
+    playOnlineGame(trimmedName);
+
   };
+  // const username = useSelector((state) => state.game.playerName);
+  // console.log(username);
 
   const playOnlineGame = (username) => {
     const newSocket = io("http://localhost:3001", {
@@ -97,46 +121,46 @@ const Board = () => {
     });
 
     newSocket.emit("request_to_play", { playerName: username });
-    setSocket(newSocket);
-    setPlayOnline(true);
+    dispatch(setSocket(newSocket));
+    dispatch(setPlayOnline(true));
   };
 
   useEffect(() => {
     if (!socket) return;
 
-    socket.on("opponentLeftMatch", () => {
-      setFinishetState("opponentLeftMatch");
-    });
+    const handleOpponentLeft = () => {
+      dispatch(setFinishedState("opponentLeftMatch"));
+    };
 
-    socket.on("playerMoveFromServer", (data) => {
+    const handlePlayerMove = (data) => {
       const id = data.state.id;
-      setGameState((prevState) => {
-        let newState = [...prevState];
-        const rowIndex = Math.floor(id / 3);
-        const colIndex = id % 3;
-        newState[rowIndex][colIndex] = data.state.sign;
-        return newState;
-      });
-      setCurrentPlayer(data.state.sign === "circle" ? "cross" : "circle");
-    });
+      dispatch(
+        setGameState((prevState) => {
+          const newState = prevState.map((row) => [...row]); // Clone the board
+          const rowIndex = Math.floor(id / 3);
+          const colIndex = id % 3;
+          newState[rowIndex][colIndex] = data.state.sign;
+          return newState;
+        })
+      );
+      dispatch(
+        setCurrentPlayer(data.state.sign === "circle" ? "cross" : "circle")
+      );
+    };
 
-    socket.on("connect", () => {
-      setPlayOnline(true);
-    });
-
-    socket.on("OpponentNotFound", () => {
-      setOpponentName(false);
-    });
-
+    socket.on("opponentLeftMatch", handleOpponentLeft);
+    socket.on("playerMoveFromServer", handlePlayerMove);
+    socket.on("OpponentNotFound", () => dispatch(setOpponentName(false)));
     socket.on("OpponentFound", (data) => {
-      setPlayingAs(data.playingAs);
-      setOpponentName(data.opponentName);
+      dispatch(setPlayingAs(data.playingAs));
+      dispatch(setOpponentName(data.opponentName));
     });
 
     return () => {
-      socket.disconnect();
+      socket.off("opponentLeftMatch", handleOpponentLeft);
+      socket.off("playerMoveFromServer", handlePlayerMove);
     };
-  }, [socket]);
+  }, [socket, dispatch]);
 
   return (
     <div className="main-div">
